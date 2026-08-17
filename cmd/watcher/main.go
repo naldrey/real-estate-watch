@@ -12,6 +12,7 @@ import (
 	"github.com/naldrey/real-estate-watch/internal/config"
 	"github.com/naldrey/real-estate-watch/internal/ingest"
 	"github.com/naldrey/real-estate-watch/internal/mail"
+	"github.com/naldrey/real-estate-watch/internal/monitor"
 	"github.com/naldrey/real-estate-watch/internal/store"
 	"github.com/naldrey/real-estate-watch/internal/telegram"
 
@@ -52,14 +53,18 @@ func run(ctx context.Context) error {
 	defer db.Close()
 
 	var notifier ingest.Notifier
+	var alerter monitor.Alerter
 	if cfg.TelegramBotToken != "" {
-		notifier = telegram.NewClient(cfg.TelegramBotToken, cfg.TelegramChatID)
+		tg := telegram.NewClient(cfg.TelegramBotToken, cfg.TelegramChatID)
+		notifier = tg
+		alerter = tg
 		slog.Info("telegram notifications enabled")
 	}
+	health := monitor.New(alerter)
 
 	slog.Info("polling for new listings", "interval", cfg.PollInterval)
 
-	poll(ctx, cfg, db, notifier)
+	poll(ctx, cfg, db, notifier, health)
 
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -70,26 +75,36 @@ func run(ctx context.Context) error {
 			slog.Info("shutting down")
 			return nil
 		case <-ticker.C:
-			poll(ctx, cfg, db, notifier)
+			poll(ctx, cfg, db, notifier, health)
 		}
 	}
 }
 
-// poll runs a single ingest cycle, logging any failure rather than
-// propagating it, so a transient IMAP or network issue doesn't stop the
-// polling loop.
-func poll(ctx context.Context, cfg config.Config, db *store.Store, notifier ingest.Notifier) {
+// poll runs a single ingest cycle and reports its outcome to health, which
+// alerts (via Telegram, if configured) only when polling starts failing or
+// recovers - not on every cycle - so a stopped-working watcher doesn't fail
+// silently.
+func poll(ctx context.Context, cfg config.Config, db *store.Store, notifier ingest.Notifier, health *monitor.PollHealth) {
+	if err := pollOnce(ctx, cfg, db, notifier); err != nil {
+		slog.Error("poll failed", "err", err)
+		health.Failure(ctx, err)
+		return
+	}
+
+	health.Success(ctx)
+	slog.Info("ingest complete")
+}
+
+func pollOnce(ctx context.Context, cfg config.Config, db *store.Store, notifier ingest.Notifier) error {
 	mailClient := mail.NewClient(cfg.IMAPHost, cfg.IMAPUsername, cfg.IMAPPassword)
 	if err := mailClient.Connect(ctx); err != nil {
-		slog.Error("poll failed", "err", fmt.Errorf("connect to imap: %w", err))
-		return
+		return fmt.Errorf("connect to imap: %w", err)
 	}
 	defer mailClient.Close()
 
 	if err := ingest.Run(ctx, mailClient, db, ingest.Registered(), notifier); err != nil {
-		slog.Error("poll failed", "err", fmt.Errorf("run ingest: %w", err))
-		return
+		return fmt.Errorf("run ingest: %w", err)
 	}
 
-	slog.Info("ingest complete")
+	return nil
 }
