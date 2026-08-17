@@ -139,3 +139,58 @@ func TestProcessedMessages_DistinctMailboxes(t *testing.T) {
 		t.Fatal("IsProcessed() = true for different mailbox with same uid, want false")
 	}
 }
+
+func TestMaxProcessedUID_NoneProcessedYet(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	_, ok, err := s.MaxProcessedUID(ctx, "idealista")
+	if err != nil {
+		t.Fatalf("MaxProcessedUID() returned error: %v", err)
+	}
+	if ok {
+		t.Fatal("MaxProcessedUID() ok = true for a mailbox with no processed messages, want false")
+	}
+}
+
+func TestMaxProcessedUID_ReturnsHighest(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	for _, uid := range []uint32{5, 42, 17} {
+		if err := s.MarkProcessed(ctx, "idealista", uid); err != nil {
+			t.Fatalf("MarkProcessed() returned error: %v", err)
+		}
+	}
+
+	got, ok, err := s.MaxProcessedUID(ctx, "idealista")
+	if err != nil {
+		t.Fatalf("MaxProcessedUID() returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("MaxProcessedUID() ok = false, want true")
+	}
+	if got != 42 {
+		t.Errorf("MaxProcessedUID() = %d, want 42", got)
+	}
+}
+
+func TestMaxProcessedUID_DistinctMailboxes(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	if err := s.MarkProcessed(ctx, "idealista", 100); err != nil {
+		t.Fatalf("MarkProcessed() returned error: %v", err)
+	}
+	if err := s.MarkProcessed(ctx, "fotocasa", 5); err != nil {
+		t.Fatalf("MarkProcessed() returned error: %v", err)
+	}
+
+	got, ok, err := s.MaxProcessedUID(ctx, "fotocasa")
+	if err != nil {
+		t.Fatalf("MaxProcessedUID() returned error: %v", err)
+	}
+	if !ok || got != 5 {
+		t.Errorf("MaxProcessedUID(%q) = (%d, %v), want (5, true)", "fotocasa", got, ok)
+	}
+}

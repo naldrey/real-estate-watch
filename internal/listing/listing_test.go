@@ -62,3 +62,36 @@ func TestListingKey(t *testing.T) {
 		t.Errorf("Listing.Key() = %+v, want %+v", got, want)
 	}
 }
+
+func TestParsePriceEUR(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    int
+		wantErr bool
+	}{
+		{in: "1.400", want: 1400},
+		{in: "1.400,50", want: 1400},
+		{in: "900", want: 900},
+		{in: "1.234.567", want: 1234567},
+		{in: "not a number", wantErr: true},
+		{in: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := ParsePriceEUR(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ParsePriceEUR(%q) returned nil error, want an error", tt.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParsePriceEUR(%q) returned error: %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Errorf("ParsePriceEUR(%q) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
+	}
+}
