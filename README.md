@@ -31,6 +31,10 @@ IMAP (Fastmail) → per-portal parser → dedupe (SQLite) → Telegram
 - **Telegram notifications are optional.** Without credentials configured,
   the watcher still runs and logs new listings; with them, it also pushes a
   message per new listing.
+- **Self-monitoring.** If a poll cycle starts failing (bad credentials,
+  IMAP/network issues), you get a single Telegram alert on the transition
+  into failure and another on recovery — not one per poll interval — so a
+  broken watcher doesn't fail silently for days.
 
 ### Supported portals
 
@@ -127,7 +131,8 @@ internal/mimepart/      MIME helpers shared by every parser: HTML/plain-text
                         extraction, charset decoding, Subject header reading
 internal/ingest/       orchestration: Provider/Store/Notifier interfaces,
                         MessageParser interface + registry, the poll-and-parse loop
-internal/telegram/      Telegram Bot API client (implements ingest.Notifier)
+internal/telegram/      Telegram Bot API client (implements ingest.Notifier and monitor.Alerter)
+internal/monitor/      poll health tracking: alerts on failure/recovery transitions
 internal/config/       env var + .env loading
 
 internal/portal/<name>/ one package per portal, each with its own
