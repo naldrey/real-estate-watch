@@ -26,8 +26,25 @@ func Run(ctx context.Context, p Provider, s Store, parsers []MessageParser, n No
 	return nil
 }
 
+// retryLookback bounds how far below the highest-ever-processed UID each
+// poll re-examines. Without it, a message that failed processing (and so
+// was never marked processed) while a later message in the same batch
+// succeeded would be silently skipped forever once the watermark moved past
+// it. With it, a stuck message is retried for up to retryLookback newer
+// messages' worth of polls - long enough in practice to catch transient
+// failures and code fixes, without re-listing a mailbox's entire history on
+// every single poll as it grows over months.
+const retryLookback = 200
+
 func runMailbox(ctx context.Context, p Provider, s Store, n Notifier, mailbox string, parser MessageParser) error {
-	uids, err := p.ListUIDs(ctx, mailbox)
+	var sinceUID uint32
+	if maxUID, ok, err := s.MaxProcessedUID(ctx, mailbox); err != nil {
+		return fmt.Errorf("max processed uid: %w", err)
+	} else if ok && maxUID > retryLookback {
+		sinceUID = maxUID - retryLookback
+	}
+
+	uids, err := p.ListUIDs(ctx, mailbox, sinceUID)
 	if err != nil {
 		return fmt.Errorf("list uids: %w", err)
 	}

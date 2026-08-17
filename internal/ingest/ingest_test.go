@@ -14,13 +14,29 @@ type fakeProvider struct {
 	bodies   map[string]map[uint32][]byte
 	listErr  error
 	fetchErr error
+
+	// calledSinceUID records the sinceUID each mailbox's ListUIDs call was
+	// made with, so tests can assert on the watermark/lookback math.
+	calledSinceUID map[string]uint32
 }
 
-func (f *fakeProvider) ListUIDs(ctx context.Context, mailbox string) ([]uint32, error) {
+func (f *fakeProvider) ListUIDs(ctx context.Context, mailbox string, sinceUID uint32) ([]uint32, error) {
+	if f.calledSinceUID == nil {
+		f.calledSinceUID = map[string]uint32{}
+	}
+	f.calledSinceUID[mailbox] = sinceUID
+
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	return f.uids[mailbox], nil
+
+	var uids []uint32
+	for _, uid := range f.uids[mailbox] {
+		if uid > sinceUID {
+			uids = append(uids, uid)
+		}
+	}
+	return uids, nil
 }
 
 func (f *fakeProvider) FetchMessage(ctx context.Context, mailbox string, uid uint32) ([]byte, error) {
@@ -54,6 +70,18 @@ func (f *fakeStore) MarkProcessed(ctx context.Context, mailbox string, uid uint3
 func (f *fakeStore) SaveListing(ctx context.Context, l listing.Listing) (bool, error) {
 	f.saved = append(f.saved, l)
 	return true, nil
+}
+
+func (f *fakeStore) MaxProcessedUID(ctx context.Context, mailbox string) (uint32, bool, error) {
+	var max uint32
+	var ok bool
+	for uid, done := range f.processed[mailbox] {
+		if done && (!ok || uid > max) {
+			max = uid
+			ok = true
+		}
+	}
+	return max, ok, nil
 }
 
 type fakeNotifier struct {
@@ -170,6 +198,54 @@ func TestRun_SkipsAlreadyProcessed(t *testing.T) {
 
 	if parseCalled {
 		t.Error("Parse was called for an already-processed message")
+	}
+}
+
+func TestRun_NarrowsListUIDsToWatermarkMinusLookback(t *testing.T) {
+	ctx := context.Background()
+
+	provider := &fakeProvider{
+		uids: map[string][]uint32{"idealista": {1500}},
+		bodies: map[string]map[uint32][]byte{
+			"idealista": {1500: []byte("raw email")},
+		},
+	}
+	s := newFakeStore()
+	s.processed["idealista"] = map[uint32]bool{1000: true} // watermark = 1000
+
+	parser := &fakeParser{
+		portal:  "idealista",
+		parseFn: func(body []byte) ([]listing.Listing, error) { return nil, nil },
+	}
+
+	if err := Run(ctx, provider, s, []MessageParser{parser}, nil); err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	want := uint32(1000 - retryLookback)
+	if got := provider.calledSinceUID["idealista"]; got != want {
+		t.Errorf("ListUIDs called with sinceUID = %d, want %d (watermark 1000 minus lookback %d)", got, want, retryLookback)
+	}
+}
+
+func TestRun_WatermarkBelowLookbackListsFromStart(t *testing.T) {
+	ctx := context.Background()
+
+	provider := &fakeProvider{uids: map[string][]uint32{"idealista": {}}}
+	s := newFakeStore()
+	s.processed["idealista"] = map[uint32]bool{5: true} // watermark well under retryLookback
+
+	parser := &fakeParser{
+		portal:  "idealista",
+		parseFn: func(body []byte) ([]listing.Listing, error) { return nil, nil },
+	}
+
+	if err := Run(ctx, provider, s, []MessageParser{parser}, nil); err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	if got := provider.calledSinceUID["idealista"]; got != 0 {
+		t.Errorf("ListUIDs called with sinceUID = %d, want 0 (watermark - lookback must saturate, not underflow)", got)
 	}
 }
 

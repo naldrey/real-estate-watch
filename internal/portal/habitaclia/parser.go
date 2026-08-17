@@ -62,7 +62,7 @@ func (parser) Parse(body []byte) ([]listing.Listing, error) {
 		}
 
 		if pm := priceRe.FindStringSubmatch(c.text); pm != nil {
-			if price, err := parsePrice(pm[1]); err == nil {
+			if price, err := listing.ParsePriceEUR(pm[1]); err == nil {
 				l.PriceEUR = price
 			}
 		}
@@ -120,14 +120,4 @@ func splitByListingID(content string) []listingChunk {
 	}
 
 	return chunks
-}
-
-// parsePrice converts a Spanish-formatted price ("1.275" or "1.275,50") into
-// whole euros, discarding any decimal remainder.
-func parsePrice(raw string) (int, error) {
-	cleaned := strings.ReplaceAll(raw, ".", "")
-	if idx := strings.Index(cleaned, ","); idx != -1 {
-		cleaned = cleaned[:idx]
-	}
-	return strconv.Atoi(cleaned)
 }

@@ -47,8 +47,9 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// ListUIDs returns the UIDs of every message currently in mailbox.
-func (c *Client) ListUIDs(ctx context.Context, mailbox string) ([]uint32, error) {
+// ListUIDs returns the UIDs of every message in mailbox with UID greater
+// than sinceUID (0 returns every message in the mailbox).
+func (c *Client) ListUIDs(ctx context.Context, mailbox string, sinceUID uint32) ([]uint32, error) {
 	mbox, err := c.conn.Select(mailbox, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("select mailbox %q: %w", mailbox, err)
@@ -57,10 +58,10 @@ func (c *Client) ListUIDs(ctx context.Context, mailbox string) ([]uint32, error)
 		return nil, nil
 	}
 
-	var all imap.UIDSet
-	all.AddRange(1, 0) // "1:*", every UID in the mailbox
+	var set imap.UIDSet
+	set.AddRange(imap.UID(sinceUID+1), 0) // "sinceUID+1:*"
 
-	messages, err := c.conn.Fetch(all, &imap.FetchOptions{UID: true}).Collect()
+	messages, err := c.conn.Fetch(set, &imap.FetchOptions{UID: true}).Collect()
 	if err != nil {
 		return nil, fmt.Errorf("list uids in mailbox %q: %w", mailbox, err)
 	}
