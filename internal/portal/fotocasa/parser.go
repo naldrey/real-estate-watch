@@ -83,7 +83,7 @@ func (parser) Parse(body []byte) ([]listing.Listing, error) {
 
 		switch {
 		case priceRe.MatchString(label):
-			if price, err := parsePrice(priceRe.FindStringSubmatch(label)[1]); err == nil {
+			if price, err := listing.ParsePriceEUR(priceRe.FindStringSubmatch(label)[1]); err == nil {
 				l.PriceEUR = price
 			}
 		case roomsSizeRe.MatchString(label):
@@ -105,14 +105,4 @@ func (parser) Parse(body []byte) ([]listing.Listing, error) {
 	}
 
 	return listings, nil
-}
-
-// parsePrice converts a Spanish-formatted price ("1.400" or "1.400,50") into
-// whole euros, discarding any decimal remainder.
-func parsePrice(raw string) (int, error) {
-	cleaned := strings.ReplaceAll(raw, ".", "")
-	if idx := strings.Index(cleaned, ","); idx != -1 {
-		cleaned = cleaned[:idx]
-	}
-	return strconv.Atoi(cleaned)
 }
