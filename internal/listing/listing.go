@@ -4,6 +4,7 @@ package listing
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -63,4 +64,15 @@ func NormalizeURL(raw string) (string, error) {
 	u.Fragment = ""
 
 	return u.String(), nil
+}
+
+// ParsePriceEUR converts a Spanish-formatted price ("1.400" or "1.400,50")
+// into whole euros, discarding any decimal remainder. "." is treated as a
+// thousands separator and "," as a decimal separator.
+func ParsePriceEUR(raw string) (int, error) {
+	cleaned := strings.ReplaceAll(raw, ".", "")
+	if idx := strings.Index(cleaned, ","); idx != -1 {
+		cleaned = cleaned[:idx]
+	}
+	return strconv.Atoi(cleaned)
 }

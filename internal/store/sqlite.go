@@ -98,6 +98,23 @@ func (s *Store) IsProcessed(ctx context.Context, mailbox string, uid uint32) (bo
 	return exists, nil
 }
 
+// MaxProcessedUID returns the highest UID marked processed for mailbox. ok
+// is false if no message in mailbox has been processed yet.
+func (s *Store) MaxProcessedUID(ctx context.Context, mailbox string) (uid uint32, ok bool, err error) {
+	var max sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT MAX(uid) FROM processed_messages WHERE mailbox = ?
+	`, mailbox).Scan(&max)
+	if err != nil {
+		return 0, false, fmt.Errorf("max processed uid: %w", err)
+	}
+	if !max.Valid {
+		return 0, false, nil
+	}
+
+	return uint32(max.Int64), true, nil
+}
+
 // MarkProcessed records that the message identified by (mailbox, uid) has been ingested.
 func (s *Store) MarkProcessed(ctx context.Context, mailbox string, uid uint32) error {
 	_, err := s.db.ExecContext(ctx, `
