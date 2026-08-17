@@ -165,3 +165,7 @@ test suite.
 - Structured logging via `log/slog`.
 - Secrets from environment (or `.env`) only — never committed, never hardcoded.
 - Prices are stored as integer euros, never floats.
+
+## License
+
+[MIT](LICENSE)
